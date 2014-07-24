@@ -263,6 +263,58 @@ class Lock(object):
     def __exit__(self, exc_type, exc_value, traceback):
         self.release()
 
+class InterProcessReadWriteLock(object):
+
+    READ_LOCK_NAME = "__READ__"
+    WRITE_LOCK_NAME = "__WRIT__"
+
+    class InternalInterLock(Lock):
+
+        def __init__(self, client, path, lockName):
+            self.lockName = lockName
+            Lock.__init__(client, path)
+
+    def __init__(self, client, path, identifier=None):
+
+        self.client = client
+        self.path = path
+
+        self.writeLock = self.InternalInterLock(client, path, self.WRITE_LOCK_NAME)
+        self.readLock = self.InternalInterLock(client, path, self.READ_LOCK_NAME)
+
+    def acquireReadLock(self):
+        if not self.writeLock.is_acquired:
+            return self.readLock.acquire(False)
+        return False
+
+    def acquireWriteLock(self):
+        if not self.writeLock.is_acquired and not self.readLock.is_acquired:
+            return self.writeLock.acquire(True)
+        return False
+
+class InterProcessMultiLock(Lock):
+
+    def __init__(self, client, paths, indentifier=None):
+        self.client = client
+        self.locks = []
+        for path in paths:
+            self.locks += Lock(client, path, indentifier)
+
+    def acquire(self, blocking=True, timeout=None):
+        allAcquired = True
+        for lock in self.locks:
+            try:
+                lock.acquire(blocking, timeout)
+            except KazooException as e:
+                print "Error locking " + lock.path + ". " + e
+                allAcquired = False
+                continue
+        return allAcquired
+
+    def release(self):
+        for lock in self.locks:
+            lock.release()
+        return True
 
 class Semaphore(object):
     """A Zookeeper-based Semaphore
