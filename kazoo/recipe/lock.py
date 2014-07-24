@@ -316,6 +316,32 @@ class InterProcessMultiLock(Lock):
             lock.release()
         return True
 
+class Reaper(object):
+
+    def __init__(self, client):
+        self.client = client
+        self.pathHolder = {}
+        self.EMPTY_COUNT_THRESHOLD = 3
+
+    def addPath(self, path, reapForever=True):
+        return self.pathHolder.update(path, [reapForever, 0])
+
+    def removePath(self, path):
+        self.pathHolder = {key:val for key,val in self.pathHolder.items() if key != path}
+
+    def reap(self, client):
+        for key, val in self.pathHolder.items():
+            if client.exists(key) and len(client.get_children(key) == 0) and val[1] + 1 >= self.EMPTY_COUNT_THRESHOLD:
+                try:
+                    client.delete(key)
+                    print "Reaping path: " + key
+                    if not val[0]:
+                        self.removePath(key) 
+                except KazooException as e:
+                    print e
+            elif client.exists(key) and len(client.get_children(key) == 0):
+                val[1] = val[1] + 1
+
 class Semaphore(object):
     """A Zookeeper-based Semaphore
 
